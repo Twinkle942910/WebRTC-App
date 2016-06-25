@@ -5,12 +5,22 @@ import android.content.SharedPreferences;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.support.v7.widget.Toolbar;
+import android.support.v7.widget.helper.ItemTouchHelper;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.example.webrtcapp.helpers.Constants;
+import com.pubnub.api.Callback;
+import com.pubnub.api.Pubnub;
+import com.pubnub.api.PubnubException;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * TODO: Uncomment mPubNub instance variable
@@ -18,6 +28,8 @@ import com.example.webrtcapp.helpers.Constants;
 public class MainActivity extends AppCompatActivity
 {
     public static final int LAYOUT = R.layout.activity_main;
+
+    private Pubnub mPubNub;
 
     private SharedPreferences mSharedPreferences;
     private TextView mUsernameTV;
@@ -55,9 +67,74 @@ public class MainActivity extends AppCompatActivity
 
         this.mUsernameTV.setText(this.username);  // Set the username to the username text view
 
+        initPubNub();
+
         //TODO: Create and instance of Pubnub and subscribe to standby channel
         // In pubnub subscribe callback, send user to your VideoActivity
     }
+
+    public void initPubNub() {
+        String stdbyChannel = this.username + Constants.STDBY_SUFFIX;
+        this.mPubNub = new Pubnub(Constants.PUB_KEY, Constants.SUB_KEY);
+        this.mPubNub.setUUID(this.username);
+        try {
+            this.mPubNub.subscribe(stdbyChannel, new Callback() {
+                @Override
+                public void successCallback(String channel, Object message) {
+                    Log.d("MA-success", "MESSAGE: " + message.toString());
+                    if (!(message instanceof JSONObject)) return; // Ignore if not JSONObject
+                    JSONObject jsonMsg = (JSONObject) message;
+                    try {
+                        if (!jsonMsg.has(Constants.JSON_CALL_USER)) return;
+                        String user = jsonMsg.getString(Constants.JSON_CALL_USER);
+                        // Consider Accept/Reject call here
+                        Intent intent = new Intent(MainActivity.this, VideoChatActivity.class);
+                        intent.putExtra(Constants.USER_NAME, username);
+                        intent.putExtra(Constants.JSON_CALL_USER, user);
+                        startActivity(intent);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        } catch (PubnubException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void makeCall(View view)
+    {
+        String callNum = mCallNumET.getText().toString();
+        if (callNum.isEmpty() || callNum.equals(this.username))
+        {
+            Toast.makeText(this, "Enter a valid number.", Toast.LENGTH_SHORT).show();
+        }
+        dispatchCall(callNum);
+    }
+
+    public void dispatchCall(final String callNum)
+    {
+        final String callNumStdBy = callNum + Constants.STDBY_SUFFIX;
+        JSONObject jsonCall = new JSONObject();
+        try {
+            jsonCall.put(Constants.JSON_CALL_USER, this.username);
+            mPubNub.publish(callNumStdBy, jsonCall, new Callback()
+            {
+                @Override
+                public void successCallback(String channel, Object message)
+                {
+                    Log.d("MA-dCall", "SUCCESS: " + message.toString());
+                    Intent intent = new Intent(MainActivity.this, VideoChatActivity.class);
+                    intent.putExtra(Constants.USER_NAME, username);
+                    intent.putExtra(Constants.CALL_USER, callNum);
+                    startActivity(intent);
+                }
+            });
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+
 
     private void initToolbar()
     {
